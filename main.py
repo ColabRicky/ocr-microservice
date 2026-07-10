@@ -47,10 +47,9 @@ _ocr_engine = None
 def get_and_run_ocr(image_np):
     global _ocr_engine
     if _ocr_engine is None:
-        # 在 HF Space 且有 GPU 資源時，使用 GPU
-        use_gpu = IS_HF_SPACE
-        print(f"💡 Initializing PaddleOCR (use_gpu={use_gpu})")
-        _ocr_engine = PaddleOCR(ocr_version="PP-OCRv5", use_angle_cls=True, lang="chinese_cht", use_gpu=use_gpu)
+        # 延遲初始化，交由 PaddleOCR 內部自動偵測 GPU/CUDA 裝置以防參數不相容
+        print("💡 Initializing PaddleOCR (Auto Device Detection)")
+        _ocr_engine = PaddleOCR(ocr_version="PP-OCRv5", use_angle_cls=True, lang="chinese_cht")
     return _ocr_engine.ocr(image_np)
 
 @app.post("/ocr")
