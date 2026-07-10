@@ -52,9 +52,18 @@ _ocr_engine = None
 def get_and_run_ocr(image_np):
     global _ocr_engine
     if _ocr_engine is None:
-        # 延遲初始化，交由 PaddleOCR 內部自動偵測 GPU/CUDA 裝置以防參數不相容
-        print("💡 Initializing PaddleOCR (Auto Device Detection)")
-        _ocr_engine = PaddleOCR(ocr_version="PP-OCRv5", use_angle_cls=True, lang="chinese_cht")
+        # 延遲初始化，嘗試顯式啟用 GPU 裝置以避免走 CPU oneDNN 崩潰路徑
+        print("💡 Initializing PaddleOCR...")
+        try:
+            print("💡 Attempting initialization with device='gpu'")
+            _ocr_engine = PaddleOCR(ocr_version="PP-OCRv5", use_angle_cls=True, lang="chinese_cht", device="gpu")
+        except Exception as e1:
+            print(f"⚠️ Failed with device='gpu': {e1}. Attempting with use_gpu=True")
+            try:
+                _ocr_engine = PaddleOCR(ocr_version="PP-OCRv5", use_angle_cls=True, lang="chinese_cht", use_gpu=True)
+            except Exception as e2:
+                print(f"⚠️ Failed with use_gpu=True: {e2}. Falling back to default initialization")
+                _ocr_engine = PaddleOCR(ocr_version="PP-OCRv5", use_angle_cls=True, lang="chinese_cht")
     return _ocr_engine.ocr(image_np)
 
 @app.post("/ocr")
