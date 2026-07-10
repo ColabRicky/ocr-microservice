@@ -4,11 +4,9 @@ import time
 
 # 繞過 PaddlePaddle 對模型主機連線的檢查，省去 startup 的延遲
 os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
-# 關閉 PIR 編譯器與 oneDNN 加速器，退回到經典的 Paddle 2.x 穩定執行引擎，防範未實現的 C++ 異常
-os.environ["FLAGS_enable_pir_api"] = "0"
-os.environ["FLAGS_use_onednn"] = "0"
 # 限制 OMP 執行緒數為 1 以最佳化 OpenBLAS 運算效能並消除警告
 os.environ["OMP_NUM_THREADS"] = "1"
+
 import numpy as np
 from PIL import Image
 from fastapi import FastAPI, File, UploadFile, HTTPException
@@ -22,20 +20,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-import sys
-try:
-    import spaces
-    IS_HF_SPACE = True
-except ImportError:
-    IS_HF_SPACE = False
-    from types import ModuleType
-    mock_spaces = ModuleType("spaces")
-    def mock_gpu(func):
-        return func
-    mock_spaces.GPU = mock_gpu
-    sys.modules["spaces"] = mock_spaces
-    import spaces
-
 # 啟用 CORS 跨域存取，方便前端 WebApp 跨域調用
 app.add_middleware(
     CORSMiddleware,
@@ -45,20 +29,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 快取推理引擎實例，延遲初始化以配合 ZeroGPU 規範
-_ocr_engine = None
-
-@spaces.GPU
-def get_and_run_ocr(image_np):
-    global _ocr_engine
-    if _ocr_engine is None:
-        # 使用與 paddlepaddle-gpu==2.6.1 搭配最穩定的 PP-OCRv4 引擎，顯式指定 use_gpu=True
-        print("💡 Initializing PaddleOCR (PP-OCRv4 with use_gpu=True)...")
-        _ocr_engine = PaddleOCR(ocr_version="PP-OCRv4", use_angle_cls=True, lang="chinese_cht", use_gpu=True)
-    return _ocr_engine.ocr(image_np)
+# 初始化 PaddleOCR 官方推理引擎 (穩定 CPU 載入版本，使用 PP-OCRv4)
+try:
+    print(f"💡 PaddleOCR version: {paddleocr.__version__}")
+    ocr_engine = PaddleOCR(ocr_version="PP-OCRv4", use_angle_cls=True, lang="chinese_cht", use_gpu=False)
+    print("💡 Official PaddleOCR PP-OCRv4 Engine successfully initialized")
+except Exception as e:
+    print(f"⚠️ Failed to initialize PaddleOCR: {e}")
+    ocr_engine = None
 
 @app.post("/ocr")
 async def perform_ocr(file: UploadFile = File(...)):
+    if ocr_engine is None:
+        raise HTTPException(status_code=500, detail="PaddleOCR engine is not initialized.")
+
     # 1. 驗證檔案類型
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Uploaded file is not an image.")
@@ -84,52 +68,28 @@ async def perform_ocr(file: UploadFile = File(...)):
         
         # 4. 執行 OCR 推理
         start_time = time.time()
-        # 呼叫相容 ZeroGPU 的延遲載入推理函數
-        ocr_result = get_and_run_ocr(image_np)
+        ocr_result = ocr_engine.ocr(image_np)
         elapsed_ms = (time.time() - start_time) * 1000
 
         # 5. 整理回傳格式以向下相容
         formatted_results = []
         
-        # 官方 PaddleOCR 回傳格式適配 (支援新版 paddlex 字典結構與經典 list 結構)
+        # 官方 PaddleOCR 回傳格式適配
         if ocr_result and len(ocr_result) > 0 and ocr_result[0] is not None:
-            res_item = ocr_result[0]
-            # 情況 A：新版 paddlex 封裝的 dict 結構
-            if isinstance(res_item, dict):
-                texts = res_item.get("rec_texts", [])
-                scores = res_item.get("rec_scores", [])
-                polys = res_item.get("rec_polys", [])
-                for i in range(len(texts)):
-                    text = texts[i]
-                    conf = scores[i] if i < len(scores) else 0.0
-                    poly = polys[i] if i < len(polys) else []
-                    
-                    if hasattr(poly, "tolist"):
-                        points = poly.tolist()
-                    else:
-                        points = poly
-
+            for line in ocr_result[0]:
+                try:
+                    points, (text, conf) = line
+                    if hasattr(points, "tolist"):
+                        points = points.tolist()
                     formatted_results.append({
                         "points": points,
                         "text": text,
                         "confidence": float(conf)
                     })
-            # 情況 B：經典的 nested list 結構 (points, (text, confidence))
-            elif isinstance(res_item, list):
-                for line in res_item:
-                    try:
-                        points, (text, conf) = line
-                        if hasattr(points, "tolist"):
-                            points = points.tolist()
-                        formatted_results.append({
-                            "points": points,
-                            "text": text,
-                            "confidence": float(conf)
-                        })
-                    except Exception:
-                        continue
+                except Exception:
+                    continue
 
-        print(f"💡 Official PaddleOCR PP-OCRv5 executed in {elapsed_ms:.1f} ms. Found {len(formatted_results)} text blocks.")
+        print(f"💡 Official PaddleOCR PP-OCRv4 executed in {elapsed_ms:.1f} ms. Found {len(formatted_results)} text blocks.")
         
         return {
             "success": True,
@@ -155,11 +115,10 @@ async def root():
 async def health_check():
     return {
         "status": "healthy",
-        "engine_loaded": _ocr_engine is not None
+        "engine_loaded": ocr_engine is not None
     }
 
 if __name__ == "__main__":
-    import os
     import uvicorn
     # 動態獲取環境變數 PORT，預設使用 8005
     server_port = int(os.environ.get("PORT", 8005))
