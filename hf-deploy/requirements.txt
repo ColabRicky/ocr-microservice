@@ -1,8 +1,8 @@
 fastapi
 uvicorn
 pillow
-numpy
+numpy<2.0.0
 python-multipart
-paddlepaddle
-paddleocr
+paddlepaddle==2.6.2
+paddleocr==2.7.3
 uv

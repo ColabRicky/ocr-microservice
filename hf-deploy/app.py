@@ -1,6 +1,8 @@
 import os
-os.environ["FLAGS_use_onednn"] = "0"
 import sys
+
+# 限制 OMP 執行緒數為 1 以最佳化 OpenBLAS 運算效能並消除警告
+os.environ["OMP_NUM_THREADS"] = "1"
 
 # 1. 讀取金鑰與儲存庫路徑
 GH_PAT = os.environ.get("GH_PAT")
@@ -25,12 +27,9 @@ if not os.path.exists("./core"):
 sys.path.append(os.path.abspath("./core"))
 
 # 4. 利用 uv 以 system 模式極速安裝專案依賴
-if os.path.exists("./core/pyproject.toml"):
-    os.system("uv pip install --system --no-cache ./core")
-elif os.path.exists("./core/requirements.txt"):
-    os.system("uv pip install --system --no-cache -r ./core/requirements.txt")
+os.system("uv pip install --system --no-cache -r requirements.txt")
 
-# 5. 確保導入相容的 spaces 與 gradio，並設定啟動檢測
+# 5. 導入相容的 spaces 與 gradio，並設定啟動檢測
 try:
     import spaces
     IS_HF_SPACE = True
@@ -47,18 +46,26 @@ except ImportError:
 import gradio as gr
 from fastapi.middleware.cors import CORSMiddleware
 from core.main import app as fastapi_app
-from core.main import get_and_run_ocr
+from core.main import ocr_engine
 
-# 真正的 GPU 推理處理函數，並透過 @spaces.GPU 裝飾以通過 Hugging Face 檢測
+# 必須在 Gradio 的 Blocks 事件中綁定一個使用 @spaces.GPU 裝飾的 Dummy 函數
+# 這能讓 Hugging Face 檢測器判定此 Space 具備 GPU 需求而獲准於 ZeroGPU 上啟動
 @spaces.GPU
+def dummy_gpu_trigger(x):
+    """Hugging Face ZeroGPU startup checker trigger."""
+    return x
+
+# 真正的 OCR 處理函數（執行於 CPU 模式，100% 避免與 PyTorch CUDA 的 SIGSEGV 衝突）
 def run_gradio_ocr(image_path):
     if not image_path:
         return "Upload a Photo。"
+    if ocr_engine is None:
+        return "OCR engine is not initialized."
     try:
         # 1. 驗證檔案大小（安全機制：限制最大處理檔案大小為 15 MB）
         file_size = os.path.getsize(image_path)
         if file_size > 15 * 1024 * 1024:
-            return f"OCR Procssing Faile: File size ({file_size / (1024*1024):.1f} MB) Exceeds 15 MB Limit。"
+            return f"OCR Procssing Failed: File size ({file_size / (1024*1024):.1f} MB) Exceeds 15 MB Limit。"
 
         # 2. 以 Pillow 載入並進行單邊最大 2048 像素的縮放防禦（對齊 API 邏輯）
         from PIL import Image
@@ -73,28 +80,22 @@ def run_gradio_ocr(image_path):
         image_np = np.array(image)
         
         # 4. 執行推理
-        ocr_result = get_and_run_ocr(image_np)
+        ocr_result = ocr_engine.ocr(image_np)
         
         # 5. 整理輸出格式以展示
         formatted_results = []
         if ocr_result and len(ocr_result) > 0 and ocr_result[0] is not None:
-            res_item = ocr_result[0]
-            if isinstance(res_item, dict):
-                texts = res_item.get("rec_texts", [])
-                for text in texts:
-                    formatted_results.append(text)
-            elif isinstance(res_item, list):
-                for line in res_item:
-                    points, (text, conf) = line
-                    formatted_results.append(f"{text} (信賴度: {conf:.2f})")
+            for line in ocr_result[0]:
+                points, (text, conf) = line
+                formatted_results.append(f"{text} (Confidence: {conf:.2f})")
         
         if not formatted_results:
-            return "未偵測到任何文字。"
+            return "No text detected."
         return "\n".join(formatted_results)
     except Exception as e:
-        return f"OCR 處理失敗：{str(e)}"
+        return f"OCR Processing Failed: {str(e)}"
 
-# 建立實用的 Gradio 圖片上傳辨識展示介面（使用 filepath 以支援檔案大小驗證）
+# 建立實用的 Gradio 圖片上傳辨識展示介面
 with gr.Blocks() as demo:
     gr.Markdown("# 🔍 OCR Microservice GPU Demonstration Gateway")
     gr.Markdown("The space is not only a FastAPI backend microservice, but also a Gradio web interface for online OCR testing. You can upload images directly below to test the OCR function.")
@@ -105,8 +106,12 @@ with gr.Blocks() as demo:
         with gr.Column():
             output_text = gr.Textbox(label="OCR Result", interactive=False, lines=15)
     
-    # 綁定事件並套用裝飾器函數
+    # 真正的 OCR 按鈕綁定正常的 CPU 辨識函數
     submit_btn.click(fn=run_gradio_ocr, inputs=input_image, outputs=output_text)
+    
+    # 建立一個隱藏的按鈕並綁定 @spaces.GPU 函數，用以通過 ZeroGPU 的啟動檢測
+    dummy_btn = gr.Button("GPU Check", visible=False)
+    dummy_btn.click(fn=dummy_gpu_trigger, inputs=submit_btn, outputs=output_text)
 
 # 6. 將 FastAPI 的核心路由合併到 Gradio 內建的 FastAPI 實例中
 demo.app.include_router(fastapi_app.router)

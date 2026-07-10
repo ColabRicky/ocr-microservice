@@ -6,7 +6,7 @@ colorTo: indigo
 sdk: gradio
 app_file: app.py
 pinned: false
-python_version: "3.12"
+python_version: "3.10"
 ---
 
 # 🔍 OCR Microservice - Hugging Face Deployment Shell

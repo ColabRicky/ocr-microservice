@@ -29,6 +29,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from typing import List
+from pydantic import BaseModel, Field
+
+class OcrResultItem(BaseModel):
+    points: List[List[float]] = Field(..., description="四個頂點座標 [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]")
+    text: str = Field(..., description="辨識出的文字")
+    confidence: float = Field(..., description="辨識置信度")
+
+class OcrResponse(BaseModel):
+    success: bool = Field(..., description="執行是否成功")
+    elapsed_ms: float = Field(..., description="推理耗時 (毫秒)")
+    results: List[OcrResultItem] = Field(..., description="辨識結果列表")
+
 # 初始化 PaddleOCR 官方推理引擎 (穩定 CPU 載入版本，使用 PP-OCRv4)
 try:
     print(f"💡 PaddleOCR version: {paddleocr.__version__}")
@@ -38,7 +51,7 @@ except Exception as e:
     print(f"⚠️ Failed to initialize PaddleOCR: {e}")
     ocr_engine = None
 
-@app.post("/ocr")
+@app.post("/ocr", response_model=OcrResponse)
 async def perform_ocr(file: UploadFile = File(...)):
     if ocr_engine is None:
         raise HTTPException(status_code=500, detail="PaddleOCR engine is not initialized.")
@@ -80,12 +93,17 @@ async def perform_ocr(file: UploadFile = File(...)):
                 try:
                     points, (text, conf) = line
                     if hasattr(points, "tolist"):
-                        points = points.tolist()
-                    formatted_results.append({
-                        "points": points,
-                        "text": text,
-                        "confidence": float(conf)
-                    })
+                        points_list = points.tolist()
+                    else:
+                        points_list = [[float(pt[0]), float(pt[1])] for pt in points]
+                    
+                    # 確保 points_list 剛好是 4 個頂點且每個點有 x, y 座標
+                    if len(points_list) == 4 and all(len(pt) == 2 for pt in points_list):
+                        formatted_results.append({
+                            "points": points_list,
+                            "text": str(text).strip(),
+                            "confidence": float(conf)
+                        })
                 except Exception:
                     continue
 
