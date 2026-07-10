@@ -7,6 +7,8 @@ os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
 # 關閉 PIR 編譯器與 oneDNN 加速器，退回到經典的 Paddle 2.x 穩定執行引擎，防範未實現的 C++ 異常
 os.environ["FLAGS_enable_pir_api"] = "0"
 os.environ["FLAGS_use_onednn"] = "0"
+# 限制 OMP 執行緒數為 1 以最佳化 OpenBLAS 運算效能並消除警告
+os.environ["OMP_NUM_THREADS"] = "1"
 import numpy as np
 from PIL import Image
 from fastapi import FastAPI, File, UploadFile, HTTPException
