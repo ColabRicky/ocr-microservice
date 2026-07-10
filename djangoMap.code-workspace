@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"path": "../djangoMap"
+		},
+		{
+			"path": "../geotiff-microservice"
+		},
+		{
+			"path": "../photo2word-microservice"
+		},
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"python-envs.defaultEnvManager": "ms-python.python:system"
+	}
+}
