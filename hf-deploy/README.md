@@ -1,32 +1,22 @@
-# Hugging Face Space 部署引導程序 (Bootstrapper)
+---
+title: Ocr Microservice
+emoji: 🔍
+colorFrom: blue
+colorTo: indigo
+sdk: gradio
+app_file: app.py
+pinned: false
+python_version: "3.12"
+---
 
-此目錄中的檔案專門用於將 `ocr-microservice` 部署至 **Hugging Face Space**。
-採用此引導程序，能讓您的核心程式碼安全地保留在 GitHub 儲存庫中，並在 Hugging Face 容器啟動時動態下載並以 `uv` 極速載入運行。
+# 🔍 OCR Microservice - Hugging Face Deployment Shell
 
-## 部署步驟
+本資料夾包含用於部署至 Hugging Face Gradio Space (免費版) 的安全中介引導層。
 
-### 1. 準備 GitHub 端的程式碼
-1. 將您的 `ocr-microservice` 專案推送至 GitHub（可設為私有 Private Repository）。
-2. 在您的 GitHub 帳號中，生成一個 **Personal Access Token (PAT)**：
-   - 權限僅需具備讀取該儲存庫（`repo` 或 `read:packages`）的權限。
+## 🚀 部署步驟
 
-### 2. 在 Hugging Face 建立 Space
-1. 登入 Hugging Face，點擊右上角的 **New Space**。
-2. 填寫 Space 名稱，並將 **SDK** 選擇為 **Docker**。
-3. 選擇 **Blank** 範本。
-4. 為了保護程式碼，建議將 Space 隱私設為 **Private** (亦可為 Public，因為 Dockerfile 中不含任何原始碼或金鑰)。
-
-### 3. 設定環境變數與金鑰 (Secrets)
-1. 在建立好的 Space 頁面中，點擊頂部的 **Settings**。
-2. 找到 **Variables and secrets** 區塊，點擊 **New secret** 新增以下兩個金鑰：
-   - `GH_PAT`: 填入您剛才在 GitHub 生成的 Personal Access Token。
-   - `GH_REPO`: 填入您的 GitHub 倉庫路徑，格式為 `用戶名/倉庫名` (例如：`rickyho/ocr-microservice`)。
-
-### 4. 上傳部署引導檔案
-1. 將本 `hf-deploy` 目錄下的所有檔案上傳到該 Hugging Face Space 儲存庫的**根目錄**：
-   - `Dockerfile`
-   - `app.py`
-   - `README.md`
-2. **請注意：不要上傳此目錄之外的核心程式碼（如外層的 `main.py`）**。Hugging Face 容器在啟動時會自動去 GitHub 下載它們。
-
-上傳完成後，Hugging Face 會自動觸發 `docker build` 並利用 `uv` 安裝依賴，拉取您的 GitHub 專案代碼，最後啟動運作！
+1. 在 Hugging Face 建立一個 **Gradio** 空間 (Space) (此為免費 SDK 類型)。
+2. 在 Space 的 **Settings -> Variables and Secrets** 新增以下機密 (Secrets)：
+   - `GH_PAT`：您的 GitHub Personal Access Token (需有存取私有庫的權限)。
+   - `GH_REPO`：您的 GitHub 專案倉庫路徑，例如 `GitHubUserName/GitRepoName` (如 `rickyho/ocr-microservice`)。
+3. 將本 `hf-deploy` 目錄下的所有檔案推送或上傳至 Hugging Face Space 的 Git 倉庫即可。

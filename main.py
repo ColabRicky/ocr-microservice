@@ -17,6 +17,20 @@ app = FastAPI(
     version="1.0.0"
 )
 
+import sys
+try:
+    import spaces
+    IS_HF_SPACE = True
+except ImportError:
+    IS_HF_SPACE = False
+    from types import ModuleType
+    mock_spaces = ModuleType("spaces")
+    def mock_gpu(func):
+        return func
+    mock_spaces.GPU = mock_gpu
+    sys.modules["spaces"] = mock_spaces
+    import spaces
+
 # 啟用 CORS 跨域存取，方便前端 WebApp 跨域調用
 app.add_middleware(
     CORSMiddleware,
@@ -26,21 +40,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 初始化 PaddleOCR 官方推理引擎
-# 顯式指定使用官方最新的 ocr_version="PP-OCRv5" 以最大程度對齊前端 PP-OCRv6 體驗
-try:
-    print(f"💡 PaddleOCR version: {paddleocr.__version__}")
-    ocr_engine = PaddleOCR(ocr_version="PP-OCRv5", use_angle_cls=True, lang="chinese_cht")
-    print("💡 Official PaddleOCR PP-OCRv5 Engine successfully initialized")
-except Exception as e:
-    print(f"⚠️ Failed to initialize PaddleOCR: {e}")
-    ocr_engine = None
+# 快取推理引擎實例，延遲初始化以配合 ZeroGPU 規範
+_ocr_engine = None
+
+@spaces.GPU
+def get_and_run_ocr(image_np):
+    global _ocr_engine
+    if _ocr_engine is None:
+        # 在 HF Space 且有 GPU 資源時，使用 GPU
+        use_gpu = IS_HF_SPACE
+        print(f"💡 Initializing PaddleOCR (use_gpu={use_gpu})")
+        _ocr_engine = PaddleOCR(ocr_version="PP-OCRv5", use_angle_cls=True, lang="chinese_cht", use_gpu=use_gpu)
+    return _ocr_engine.ocr(image_np)
 
 @app.post("/ocr")
 async def perform_ocr(file: UploadFile = File(...)):
-    if ocr_engine is None:
-        raise HTTPException(status_code=500, detail="PaddleOCR engine is not initialized.")
-
     # 1. 驗證檔案類型
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Uploaded file is not an image.")
@@ -66,8 +80,8 @@ async def perform_ocr(file: UploadFile = File(...)):
         
         # 4. 執行 OCR 推理
         start_time = time.time()
-        # 移除 cls=True 參數，避免調用底層 predict() 時報錯 (初始化中已配置 use_angle_cls=True)
-        ocr_result = ocr_engine.ocr(image_np)
+        # 呼叫相容 ZeroGPU 的延遲載入推理函數
+        ocr_result = get_and_run_ocr(image_np)
         elapsed_ms = (time.time() - start_time) * 1000
 
         # 5. 整理回傳格式以向下相容
@@ -137,7 +151,7 @@ async def root():
 async def health_check():
     return {
         "status": "healthy",
-        "engine_loaded": ocr_engine is not None
+        "engine_loaded": _ocr_engine is not None
     }
 
 if __name__ == "__main__":
