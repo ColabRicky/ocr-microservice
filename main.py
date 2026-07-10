@@ -4,7 +4,8 @@ import time
 
 # 繞過 PaddlePaddle 對模型主機連線的檢查，省去 startup 的延遲
 os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
-# 關閉 oneDNN，防範其在新一代編譯器（PIR）模式下對 DoubleAttribute 轉譯未實現的 C++ 異常
+# 關閉 PIR 編譯器與 oneDNN 加速器，退回到經典的 Paddle 2.x 穩定執行引擎，防範未實現的 C++ 異常
+os.environ["FLAGS_enable_pir_api"] = "0"
 os.environ["FLAGS_use_onednn"] = "0"
 import numpy as np
 from PIL import Image
