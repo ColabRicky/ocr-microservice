@@ -1,4 +1,5 @@
 import os
+os.environ["FLAGS_use_onednn"] = "0"
 import sys
 
 # 1. 讀取金鑰與儲存庫路徑
