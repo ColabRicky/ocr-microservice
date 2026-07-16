@@ -45,7 +45,7 @@ class OcrResponse(BaseModel):
 # 初始化 PaddleOCR 官方推理引擎 (穩定 CPU 載入版本，使用 PP-OCRv4)
 try:
     print(f"💡 PaddleOCR version: {paddleocr.__version__}")
-    ocr_engine = PaddleOCR(ocr_version="PP-OCRv4", use_angle_cls=True, lang="ch", use_gpu=False)
+    ocr_engine = PaddleOCR(ocr_version="PP-OCRv4", use_angle_cls=True, lang="chinese_cht", use_gpu=False)  # //chinese_cht
     print("💡 Official PaddleOCR PP-OCRv4 Engine successfully initialized")
 except Exception as e:
     print(f"⚠️ Failed to initialize PaddleOCR: {e}")
