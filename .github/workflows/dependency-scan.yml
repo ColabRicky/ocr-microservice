@@ -1,0 +1,41 @@
+name: Dependency Security Scan
+
+on:
+  push:
+    branches: [ main, master ]
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+  pull_request:
+    branches: [ main, master ]
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+  schedule:
+    - cron: '0 0 * * 1' # 每週一早上 8:00 自動執行一次（UTC 時間 00:00）
+  workflow_dispatch:
+
+jobs:
+  python-security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Export dependencies from uv.lock
+        run: |
+          uv venv
+          uv pip compile pyproject.toml -o requirements_uv.txt
+
+      - name: Run pip-audit
+        run: |
+          uv pip install pip-audit
+          uv run pip-audit -r requirements_uv.txt

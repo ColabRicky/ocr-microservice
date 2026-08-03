@@ -14,8 +14,7 @@ from PIL import Image
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import paddleocr
-# from paddleocr import PaddleOCR
-from paddlex import create_pipeline
+from paddleocr import PaddleOCR[all]
 
 app = FastAPI(
     title="PaddleOCR Official Microservice",
@@ -36,43 +35,32 @@ from typing import List
 from pydantic import BaseModel, Field
 
 class OcrResultItem(BaseModel):
+    points: List[List[float]] = Field(..., description="四個頂點座標 [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]")
     text: str = Field(..., description="辨識出的文字")
     confidence: float = Field(..., description="辨識置信度")
 
 class OcrResponse(BaseModel):
     success: bool = Field(..., description="執行是否成功")
     elapsed_ms: float = Field(..., description="推理耗時 (毫秒)")
-    text_combined: str = Field(..., description="所有辨識文字的組合字串 (以逗號隔開)")
-    results: List[OcrResultItem] = Field(..., description="辨識結果文字清單")
-
-# 初始化 OCR 推理引擎 (以 PaddleX 3.x Pipeline 為優先，傳統 PaddleOCR 為降級備援)
-ocr_engine = None
-engine_type = None
+    results: List[OcrResultItem] = Field(..., description="辨識結果列表")
 
 try:
+    print(f"💡 PaddleOCR version: {paddleocr.__version__}")
     try:
-        from paddlex import create_pipeline
-        ocr_engine = create_pipeline(pipeline="OCR")
-        engine_type = "paddlex"
-        print("💡 Official PaddleX 3.x OCR Pipeline successfully initialized")
+        ocr_engine = PaddleOCR(use_textline_orientation=True, lang="ch")
+        print("💡 Official PaddleOCR Engine (v3.x Latest) successfully initialized")
     except Exception as err1:
-        print(f"💡 PaddleX Pipeline load failed ({err1}), falling back to traditional PaddleOCR...")
-        from paddleocr import PaddleOCR
-        try:
-            ocr_engine = PaddleOCR(use_textline_orientation=True, lang="ch")
-        except Exception:
-            ocr_engine = PaddleOCR(use_angle_cls=True, lang="ch")
-        engine_type = "paddleocr"
-        print("💡 Traditional PaddleOCR Engine successfully initialized")
+        print(f"💡 Primary load failed ({err1}), trying fallback configuration...")
+        ocr_engine = PaddleOCR(use_angle_cls=True, lang="ch")
+        print("💡 Official PaddleOCR Engine (Fallback) successfully initialized")
 except Exception as e:
-    print(f"⚠️ Failed to initialize OCR Engine: {e}")
+    print(f"⚠️ Failed to initialize PaddleOCR: {e}")
     ocr_engine = None
-    engine_type = None
 
 @app.post("/ocr", response_model=OcrResponse)
 async def perform_ocr(file: UploadFile = File(...)):
     if ocr_engine is None:
-        raise HTTPException(status_code=500, detail="OCR engine is not initialized.")
+        raise HTTPException(status_code=500, detail="PaddleOCR engine is not initialized.")
 
     # 1. 驗證檔案類型
     if not file.content_type.startswith("image/"):
@@ -96,47 +84,36 @@ async def perform_ocr(file: UploadFile = File(...)):
 
         # 3. 轉成 NumPy 陣列供推理引擎使用
         image_np = np.array(image)
+        
+        # 4. 執行 OCR 推理
         start_time = time.time()
-
-        formatted_results = []
-        text_list = []
-
-        # 4. 根據引擎類型執行推論與精簡文字解析 (無需 bbox)
-        if engine_type == "paddlex":
-            outputs = ocr_engine.predict(image_np)
-            for res in outputs:
-                inner_res = res.get('res', res) if isinstance(res, dict) else res
-                rec_texts = getattr(inner_res, 'rec_texts', None) or (inner_res.get('rec_texts') if isinstance(inner_res, dict) else [])
-                rec_scores = getattr(inner_res, 'rec_scores', None) or (inner_res.get('rec_scores') if isinstance(inner_res, dict) else [])
-                
-                for text, score in zip(rec_texts, rec_scores):
-                    clean_text = str(text).strip()
-                    if clean_text:
-                        formatted_results.append({
-                            "text": clean_text,
-                            "confidence": float(score)
-                        })
-                        text_list.append(clean_text)
-        else:
-            ocr_result = ocr_engine.ocr(image_np)
-            if ocr_result and len(ocr_result) > 0 and ocr_result[0] is not None:
-                for line in ocr_result[0]:
-                    try:
-                        _, (text, conf) = line
-                        clean_text = str(text).strip()
-                        if clean_text:
-                            formatted_results.append({
-                                "text": clean_text,
-                                "confidence": float(conf)
-                            })
-                            text_list.append(clean_text)
-                    except Exception:
-                        continue
-
+        ocr_result = ocr_engine.ocr(image_np)
         elapsed_ms = (time.time() - start_time) * 1000
-        text_combined = ", ".join(text_list)
 
-        print(f"💡 OCR executed ({engine_type}) in {elapsed_ms:.1f} ms. Found {len(formatted_results)} text items.")
+        # 5. 整理回傳格式以向下相容
+        formatted_results = []
+        
+        # 官方 PaddleOCR 回傳格式適配
+        if ocr_result and len(ocr_result) > 0 and ocr_result[0] is not None:
+            for line in ocr_result[0]:
+                try:
+                    points, (text, conf) = line
+                    if hasattr(points, "tolist"):
+                        points_list = points.tolist()
+                    else:
+                        points_list = [[float(pt[0]), float(pt[1])] for pt in points]
+                    
+                    # 確保 points_list 剛好是 4 個頂點且每個點有 x, y 座標
+                    if len(points_list) == 4 and all(len(pt) == 2 for pt in points_list):
+                        formatted_results.append({
+                            "points": points_list,
+                            "text": str(text).strip(),
+                            "confidence": float(conf)
+                        })
+                except Exception:
+                    continue
+
+        print(f"💡 Official PaddleOCR executed in {elapsed_ms:.1f} ms. Found {len(formatted_results)} text blocks.")
         
         return {
             "success": True,
