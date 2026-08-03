@@ -54,7 +54,7 @@ try:
         from paddlex import create_pipeline
         ocr_engine = create_pipeline(pipeline="OCR")
         engine_type = "paddlex"
-        print("💡 Official PaddleX 3.x OCR Pipeline successfully initialized")
+        print("💡 Official PaddleX OCR Pipeline successfully initialized")
     except Exception as err1:
         print(f"💡 PaddleX Pipeline load failed ({err1}), falling back to traditional PaddleOCR...")
         from paddleocr import PaddleOCR
@@ -141,6 +141,7 @@ async def perform_ocr(file: UploadFile = File(...)):
         return {
             "success": True,
             "elapsed_ms": elapsed_ms,
+            "text_combined": text_combined,
             "results": formatted_results
         }
 
