@@ -14,7 +14,7 @@ from PIL import Image
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import paddleocr
-from paddleocr import PaddleOCR[all]
+from paddleocr import PaddleOCR
 
 app = FastAPI(
     title="PaddleOCR Official Microservice",

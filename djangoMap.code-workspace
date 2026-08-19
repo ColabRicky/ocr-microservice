@@ -11,6 +11,12 @@
 		},
 		{
 			"path": "."
+		},
+		{
+			"path": "../PercepTreeV1"
+		},
+		{
+			"path": "../form1-microservice"
 		}
 	],
 	"settings": {
