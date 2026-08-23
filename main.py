@@ -69,6 +69,60 @@ except Exception as e:
     ocr_engine = None
     engine_type = None
 
+def extract_ocr_texts_and_scores(res):
+    texts = []
+    scores = []
+    
+    # 1. 嘗試由 dict / json 屬性讀取
+    data = None
+    if isinstance(res, dict):
+        data = res
+    elif hasattr(res, 'json') and isinstance(res.json, dict):
+        data = res.json
+    elif hasattr(res, 'to_dict') and callable(res.to_dict):
+        try:
+            data = res.to_dict()
+        except Exception:
+            pass
+
+    if data:
+        texts = data.get('rec_text') or data.get('rec_texts') or data.get('texts') or []
+        scores = data.get('rec_score') or data.get('rec_scores') or data.get('scores') or []
+
+    # 2. 嘗試由索引器 (__getitem__) 讀取 (相容 PaddleX 3.x OCRResult 物件)
+    if not texts and hasattr(res, '__getitem__'):
+        for k in ['rec_text', 'rec_texts', 'texts', 'text']:
+            try:
+                val = res[k]
+                if val:
+                    texts = val
+                    break
+            except Exception:
+                pass
+        for k in ['rec_score', 'rec_scores', 'scores', 'score']:
+            try:
+                val = res[k]
+                if val:
+                    scores = val
+                    break
+            except Exception:
+                pass
+
+    # 3. 嘗試由物件屬性讀取
+    if not texts:
+        texts = getattr(res, 'rec_text', None) or getattr(res, 'rec_texts', None) or []
+    if not scores:
+        scores = getattr(res, 'rec_score', None) or getattr(res, 'rec_scores', None) or []
+
+    if isinstance(texts, str):
+        texts = [texts]
+    if isinstance(scores, (int, float)):
+        scores = [scores] * len(texts)
+    elif not scores or len(scores) < len(texts):
+        scores = list(scores) + [1.0] * (len(texts) - len(scores))
+
+    return texts, scores
+
 @app.post("/ocr", response_model=OcrResponse)
 async def perform_ocr(file: UploadFile = File(...)):
     if ocr_engine is None:
@@ -105,30 +159,7 @@ async def perform_ocr(file: UploadFile = File(...)):
         if engine_type == "paddlex":
             outputs = ocr_engine.predict(image_np)
             for res in outputs:
-                inner_res = res.get('res', res) if isinstance(res, dict) else (getattr(res, 'res', res) or res)
-                
-                # 提取辨識文字陣列 (相容 PaddleX 3.x 各版本欄位命名)
-                rec_texts = (
-                    getattr(inner_res, 'rec_texts', None) 
-                    or getattr(inner_res, 'rec_text', None)
-                    or (inner_res.get('rec_texts') if isinstance(inner_res, dict) else None)
-                    or (inner_res.get('rec_text') if isinstance(inner_res, dict) else None)
-                    or []
-                )
-                if isinstance(rec_texts, str):
-                    rec_texts = [rec_texts]
-                    
-                # 提取辨識置信度陣列
-                rec_scores = (
-                    getattr(inner_res, 'rec_scores', None)
-                    or getattr(inner_res, 'rec_score', None)
-                    or (inner_res.get('rec_scores') if isinstance(inner_res, dict) else None)
-                    or (inner_res.get('rec_score') if isinstance(inner_res, dict) else None)
-                    or []
-                )
-                if isinstance(rec_scores, (int, float)):
-                    rec_scores = [rec_scores] * len(rec_texts)
-
+                rec_texts, rec_scores = extract_ocr_texts_and_scores(res)
                 for text, score in zip(rec_texts, rec_scores):
                     clean_text = str(text).strip()
                     if clean_text:
