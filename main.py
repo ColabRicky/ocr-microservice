@@ -45,7 +45,7 @@ class OcrResponse(BaseModel):
     text_combined: str = Field(..., description="所有辨識文字的組合字串 (以逗號隔開)")
     results: List[OcrResultItem] = Field(..., description="辨識結果文字清單")
 
-# 初始化 OCR 推理引擎 (以 PaddleX 3.x Pipeline 為優先，傳統 PaddleOCR 為降級備援)
+# 初始化 OCR 推理引擎 (以 PaddleX 3.x Pipeline PP-OCRv6/v5 為優先，傳統 PaddleOCR PP-OCRv4 為降級備援)
 ocr_engine = None
 engine_type = None
 
@@ -54,16 +54,16 @@ try:
         from paddlex import create_pipeline
         ocr_engine = create_pipeline(pipeline="OCR")
         engine_type = "paddlex"
-        print("💡 Official PaddleX OCR Pipeline successfully initialized")
+        print("💡 Official PaddleX OCR Pipeline (PP-OCRv6/v5) successfully initialized")
     except Exception as err1:
-        print(f"💡 PaddleX Pipeline load failed ({err1}), falling back to traditional PaddleOCR...")
+        print(f"💡 PaddleX Pipeline load failed ({err1}), falling back to traditional PaddleOCR (PP-OCRv4)...")
         from paddleocr import PaddleOCR
         try:
-            ocr_engine = PaddleOCR(use_textline_orientation=True, lang="ch")
+            ocr_engine = PaddleOCR(use_textline_orientation=True, lang="ch", ocr_version="PP-OCRv4")
         except Exception:
-            ocr_engine = PaddleOCR(use_angle_cls=True, lang="ch")
+            ocr_engine = PaddleOCR(use_angle_cls=True, lang="ch", ocr_version="PP-OCRv4")
         engine_type = "paddleocr"
-        print("💡 Traditional PaddleOCR Engine successfully initialized")
+        print("💡 Traditional PaddleOCR Engine (PP-OCRv4) successfully initialized")
 except Exception as e:
     print(f"⚠️ Failed to initialize OCR Engine: {e}")
     ocr_engine = None
@@ -105,10 +105,30 @@ async def perform_ocr(file: UploadFile = File(...)):
         if engine_type == "paddlex":
             outputs = ocr_engine.predict(image_np)
             for res in outputs:
-                inner_res = res.get('res', res) if isinstance(res, dict) else res
-                rec_texts = getattr(inner_res, 'rec_texts', None) or (inner_res.get('rec_texts') if isinstance(inner_res, dict) else [])
-                rec_scores = getattr(inner_res, 'rec_scores', None) or (inner_res.get('rec_scores') if isinstance(inner_res, dict) else [])
+                inner_res = res.get('res', res) if isinstance(res, dict) else (getattr(res, 'res', res) or res)
                 
+                # 提取辨識文字陣列 (相容 PaddleX 3.x 各版本欄位命名)
+                rec_texts = (
+                    getattr(inner_res, 'rec_texts', None) 
+                    or getattr(inner_res, 'rec_text', None)
+                    or (inner_res.get('rec_texts') if isinstance(inner_res, dict) else None)
+                    or (inner_res.get('rec_text') if isinstance(inner_res, dict) else None)
+                    or []
+                )
+                if isinstance(rec_texts, str):
+                    rec_texts = [rec_texts]
+                    
+                # 提取辨識置信度陣列
+                rec_scores = (
+                    getattr(inner_res, 'rec_scores', None)
+                    or getattr(inner_res, 'rec_score', None)
+                    or (inner_res.get('rec_scores') if isinstance(inner_res, dict) else None)
+                    or (inner_res.get('rec_score') if isinstance(inner_res, dict) else None)
+                    or []
+                )
+                if isinstance(rec_scores, (int, float)):
+                    rec_scores = [rec_scores] * len(rec_texts)
+
                 for text, score in zip(rec_texts, rec_scores):
                     clean_text = str(text).strip()
                     if clean_text:
