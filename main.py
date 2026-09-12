@@ -36,6 +36,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 class OcrResultItem(BaseModel):
+    
     text: str = Field(..., description="辨識出的文字")
     confidence: float = Field(..., description="辨識置信度")
 
@@ -45,7 +46,7 @@ class OcrResponse(BaseModel):
     text_combined: str = Field(..., description="所有辨識文字的組合字串 (以逗號隔開)")
     results: List[OcrResultItem] = Field(..., description="辨識結果文字清單")
 
-# 初始化 OCR 推理引擎 (以 PaddleX 3.x Pipeline PP-OCRv6/v5 為優先，傳統 PaddleOCR PP-OCRv4 為降級備援)
+# 初始化 OCR 推理引擎 (以 PaddleX 3.x Pipeline PP-OCRv5 為優先，傳統 PaddleOCR PP-OCRv4 為降級備援)
 ocr_engine = None
 engine_type = None
 
@@ -54,7 +55,7 @@ try:
         from paddlex import create_pipeline
         ocr_engine = create_pipeline(pipeline="OCR")
         engine_type = "paddlex"
-        print("💡 Official PaddleX OCR Pipeline (PP-OCRv6/v5) successfully initialized")
+        print("💡 Official PaddleX OCR Pipeline (PP-OCRv5) successfully initialized")
     except Exception as err1:
         print(f"💡 PaddleX Pipeline load failed ({err1}), falling back to traditional PaddleOCR (PP-OCRv4)...")
         from paddleocr import PaddleOCR
