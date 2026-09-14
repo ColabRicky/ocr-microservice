@@ -158,7 +158,9 @@ async def perform_ocr(file: UploadFile = File(...)):
 
         # 4. 根據引擎類型執行推論與精簡文字解析 (無需 bbox)
         if engine_type == "paddlex":
-            outputs = ocr_engine.predict(image_np)
+            outputs = ocr_engine.predict(image_np, 
+                                        use_doc_orientation_classify=True, 
+                                        use_textline_orientation=True,)
             for res in outputs:
                 rec_texts, rec_scores = extract_ocr_texts_and_scores(res)
                 for text, score in zip(rec_texts, rec_scores):
@@ -170,7 +172,7 @@ async def perform_ocr(file: UploadFile = File(...)):
                         })
                         text_list.append(clean_text)
         else:
-            ocr_result = ocr_engine.ocr(image_np)
+            ocr_result = ocr_engine.ocr(image_np, cls=True)
             if ocr_result and len(ocr_result) > 0 and ocr_result[0] is not None:
                 for line in ocr_result[0]:
                     try:
